@@ -71,17 +71,15 @@ async function registerCommands() {
   }
 }
 
-// Check if a member can give or remove a role based on the permissions in permissions.json
+// Check if a member can give or remove a role based on permissions.json
 function hasPermissionToManageRole(member, role) {
   const roleId = role.id;
 
-  // Check if member's role is allowed to manage the role
   for (const [giverRoleId, allowedRoles] of Object.entries(permissions.roles)) {
     if (member.roles.cache.has(giverRoleId) && allowedRoles.includes(roleId)) {
       return true;
     }
   }
-
   return false;
 }
 
@@ -89,11 +87,11 @@ function hasPermissionToManageRole(member, role) {
 async function logAction(channelId, message) {
   try {
     const channel = await client.channels.fetch(channelId);
-    if (channel && channel.isText()) {
-      await channel.send(message);
-    } else {
-      console.error("Log channel not found!");
+    if (!channel || !channel.send) {
+      console.error("Log channel not found or invalid.");
+      return;
     }
+    await channel.send(message);
   } catch (error) {
     console.error("Error logging action:", error);
   }
@@ -101,7 +99,7 @@ async function logAction(channelId, message) {
 
 // Function to log errors
 async function logError(error) {
-  const logChannelId = "1354978824856670359"; // Your log channel ID
+  const logChannelId = "1354978824856670359";
   const errorMessage = `❌ Error occurred: ${error.message}\nStack: ${error.stack}`;
   await logAction(logChannelId, errorMessage);
 }
@@ -110,50 +108,43 @@ async function logError(error) {
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const logChannelId = "1354978824856670359"; // Your log channel ID
+  const logChannelId = "1354978824856670359";
 
   if (interaction.commandName === "giverole") {
     const user = interaction.options.getUser("user");
     const role = interaction.options.getRole("role");
 
     const member = await interaction.guild.members.fetch(user.id);
-    const giver = interaction.member; // The member giving the role
+    const giver = interaction.member;
 
-    // Check if the giver has permission
     if (!hasPermissionToManageRole(giver, role)) {
       return interaction.reply({
         content: "You do not have permission to assign this role in the Solar Role Play community.",
-        ephemeral: true
+        flags: 64
       });
     }
 
-    // Assign the role
     try {
       await member.roles.add(role);
       await interaction.reply({
-        content: `✅ Successfully gave ${role.name} to <@${user.id}> by Solar roleplay!`,
+        content: `✅ Successfully gave ${role.name} to <@${user.id}> by Solar roleplay!`
       });
 
-      // Notify the person giving the role
       await giver.send(`✅ You have successfully given the ${role.name} role to <@${user.id}> by Solar roleplay.`);
-
-      // Notify in the channel and ping the user
       await interaction.channel.send(`<@${user.id}>, you have received the ${role.name} role from Solar roleplay!`);
 
-      // Send DM to the recipient with role giver's ID
       try {
-        await member.send(`Hey, you’ve received the ${role.name} role from <@${giver.id}> (Discord ID: ${giver.id}) by Solar roleplay.`);
+        await member.send(`Hey, you’ve received the ${role.name} role from <@${giver.id}>.`);
       } catch (dmError) {
         console.error("Failed to DM the recipient:", dmError);
       }
 
-      // Log to the log channel
       await logAction(logChannelId, `Role ${role.name} was given to <@${user.id}> by <@${giver.id}>`);
     } catch (error) {
       console.error(error);
       await interaction.reply({
         content: "❌ Failed to assign the role. Ensure my role is above the target role in the server settings.",
-        ephemeral: true
+        flags: 64
       });
       await logError(error);
     }
@@ -164,36 +155,30 @@ client.on("interactionCreate", async interaction => {
     const role = interaction.options.getRole("role");
 
     const member = await interaction.guild.members.fetch(user.id);
-    const remover = interaction.member; // The member removing the role
+    const remover = interaction.member;
 
-    // Check if the remover has permission to remove the role
     if (!hasPermissionToManageRole(remover, role)) {
       return interaction.reply({
         content: "You do not have permission to remove this role in the Solar Role Play community.",
-        ephemeral: true
+        flags: 64
       });
     }
 
-    // Remove the role
     try {
       await member.roles.remove(role);
       await interaction.reply({
-        content: `✅ Successfully removed ${role.name} from <@${user.id}> by Solar roleplay!`,
+        content: `✅ Successfully removed ${role.name} from <@${user.id}> by Solar roleplay!`
       });
 
-      // Notify the person removing the role
       await remover.send(`✅ You have successfully removed the ${role.name} role from <@${user.id}> by Solar roleplay.`);
-
-      // Notify in the channel and ping the user
       await interaction.channel.send(`<@${user.id}>, the ${role.name} role has been removed from you by Solar roleplay.`);
 
-      // Log to the log channel
       await logAction(logChannelId, `Role ${role.name} was removed from <@${user.id}> by <@${remover.id}>`);
     } catch (error) {
       console.error(error);
       await interaction.reply({
         content: "❌ Failed to remove the role. Ensure my role is above the target role in the server settings.",
-        ephemeral: true
+        flags: 64
       });
       await logError(error);
     }
