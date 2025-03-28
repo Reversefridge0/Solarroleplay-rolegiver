@@ -115,6 +115,13 @@ client.on("interactionCreate", async interaction => {
 
       // Notify in the channel and ping the user
       await interaction.channel.send(`<@${user.id}>, you have received the ${role.name} role from Solar roleplay!`);
+
+      // Send DM to the recipient with role giver's ID
+      try {
+        await member.send(`Hey, you’ve received the ${role.name} role from <@${giver.id}> (Discord ID: ${giver.id}) by Solar roleplay.`);
+      } catch (dmError) {
+        console.error("Failed to DM the recipient:", dmError);
+      }
     } catch (error) {
       console.error(error);
       await interaction.reply({
