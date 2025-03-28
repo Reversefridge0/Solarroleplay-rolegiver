@@ -67,6 +67,7 @@ async function registerCommands() {
     console.log("Slash commands registered!");
   } catch (error) {
     console.error("Error registering commands: ", error);
+    await logError(error);
   }
 }
 
@@ -84,9 +85,32 @@ function hasPermissionToManageRole(member, role) {
   return false;
 }
 
+// Function to log actions to a specific channel
+async function logAction(channelId, message) {
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (channel && channel.isText()) {
+      await channel.send(message);
+    } else {
+      console.error("Log channel not found!");
+    }
+  } catch (error) {
+    console.error("Error logging action:", error);
+  }
+}
+
+// Function to log errors
+async function logError(error) {
+  const logChannelId = "1354978824856670359"; // Your log channel ID
+  const errorMessage = `❌ Error occurred: ${error.message}\nStack: ${error.stack}`;
+  await logAction(logChannelId, errorMessage);
+}
+
 // Handle the interaction and role assignment or removal
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
+
+  const logChannelId = "1354978824856670359"; // Your log channel ID
 
   if (interaction.commandName === "giverole") {
     const user = interaction.options.getUser("user");
@@ -122,12 +146,16 @@ client.on("interactionCreate", async interaction => {
       } catch (dmError) {
         console.error("Failed to DM the recipient:", dmError);
       }
+
+      // Log to the log channel
+      await logAction(logChannelId, `Role ${role.name} was given to <@${user.id}> by <@${giver.id}>`);
     } catch (error) {
       console.error(error);
       await interaction.reply({
         content: "❌ Failed to assign the role. Ensure my role is above the target role in the server settings.",
         ephemeral: true
       });
+      await logError(error);
     }
   }
 
@@ -158,12 +186,16 @@ client.on("interactionCreate", async interaction => {
 
       // Notify in the channel and ping the user
       await interaction.channel.send(`<@${user.id}>, the ${role.name} role has been removed from you by Solar roleplay.`);
+
+      // Log to the log channel
+      await logAction(logChannelId, `Role ${role.name} was removed from <@${user.id}> by <@${remover.id}>`);
     } catch (error) {
       console.error(error);
       await interaction.reply({
         content: "❌ Failed to remove the role. Ensure my role is above the target role in the server settings.",
         ephemeral: true
       });
+      await logError(error);
     }
   }
 });
@@ -171,7 +203,16 @@ client.on("interactionCreate", async interaction => {
 // Log the bot in and register commands
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
+  await logAction("1354978824856670359", `Bot started successfully at ${new Date().toLocaleString()}`);
   await registerCommands();
+});
+
+// Reboot logs
+client.on("shardReconnecting", () => {
+  logAction("1354978824856670359", "Bot is reconnecting...");
+});
+client.on("shardDisconnect", (event) => {
+  logAction("1354978824856670359", `Bot disconnected. Code: ${event.code}`);
 });
 
 client.login(process.env.BOT_TOKEN);
