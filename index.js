@@ -1,13 +1,15 @@
+require('dotenv').config();  // Load environment variables
+
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
-const TOKEN = 'YOUR_BOT_TOKEN';
-const CLIENT_ID = 'YOUR_CLIENT_ID';
-const GUILD_ID = 'YOUR_GUILD_ID';
-const LOG_CHANNEL_ID = 'LOG_CHANNEL_ID_HERE'; // << Replace with your log channel ID
+const TOKEN = process.env.TOKEN;  // Get token from .env file
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
+const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;  // Get log channel ID from .env file
 
 const permissionsFilePath = path.join(__dirname, 'permissions.json');
 let rolePermissions = JSON.parse(fs.readFileSync(permissionsFilePath, 'utf-8')).roles;
@@ -65,7 +67,7 @@ async function logDeniedAccess(giver, role, interaction) {
   const userTag = `${giver.user.username}#${giver.user.discriminator}`;
   const logMessage = `❌ **Permission Denied**\nUser: ${userTag} (${giver.id})\nTried to give/create role: <@&${role.id || 'N/A'}> (${role.name || role})`;
 
-  logChannel.send(logMessage).catch(() => {});
+  logChannel.send(logMessage).catch(error => console.error("Failed to log denied access:", error));
 }
 
 client.on('interactionCreate', async interaction => {
