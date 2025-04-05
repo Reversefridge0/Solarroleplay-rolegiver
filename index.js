@@ -51,23 +51,7 @@ const commands = [
       option.setName('role')
         .setDescription('The role to remove')
         .setRequired(true)
-    ),
-  
-  // Adding the 'createrole' command here
-  new SlashCommandBuilder()
-    .setName('createrole')
-    .setDescription('Create a new role in the server')
-    .addStringOption(option => 
-      option.setName('rolename')
-        .setDescription('The name of the new role')
-        .setRequired(true)
     )
-    .addStringOption(option => 
-      option.setName('color')
-        .setDescription('The color of the new role in hex (e.g., #ff0000)')
-        .setRequired(true)
-    )
-    .setDefaultMemberPermissions(8) // Admin permissions (8 is the "Administrator" permission)
 ].map(command => command.toJSON());
 
 // Register slash commands with Discord API
@@ -87,12 +71,12 @@ async function registerCommands() {
   }
 }
 
-// Check if a member has admin or manager permissions based on permissions.json
-function hasPermissionToCreateRole(member) {
-  const allowedRoles = permissions.adminRoles || []; // Get admin roles from permissions.json
+// Check if a member can give or remove a role based on permissions.json
+function hasPermissionToManageRole(member, role) {
+  const roleId = role.id;
 
-  for (const roleId of allowedRoles) {
-    if (member.roles.cache.has(roleId)) {
+  for (const [giverRoleId, allowedRoles] of Object.entries(permissions.roles)) {
+    if (member.roles.cache.has(giverRoleId) && allowedRoles.includes(roleId)) {
       return true;
     }
   }
@@ -120,7 +104,7 @@ async function logError(error) {
   await logAction(logChannelId, errorMessage);
 }
 
-// Handle the interaction and role creation or removal
+// Handle the interaction and role assignment or removal
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -199,51 +183,21 @@ client.on("interactionCreate", async interaction => {
       await logError(error);
     }
   }
-
-  // Handle the 'createrole' command
-  if (interaction.commandName === "createrole") {
-    const roleName = interaction.options.getString("rolename");
-    const color = interaction.options.getString("color");
-
-    const member = interaction.member;
-
-    // Check if the member has permission to create roles
-    if (!hasPermissionToCreateRole(member)) {
-      return interaction.reply({
-        content: "You do not have permission to create roles in this server.",
-        flags: 64
-      });
-    }
-
-    try {
-      // Create a new role with the given name and color
-      const newRole = await interaction.guild.roles.create({
-        name: roleName,
-        color: color,
-        reason: 'Role created by admin',
-      });
-
-      await interaction.reply({
-        content: `✅ Successfully created the role ${newRole.name}.`
-      });
-
-      await logAction(logChannelId, `Role ${newRole.name} was created by <@${member.id}>`);
-
-    } catch (error) {
-      console.error(error);
-      await interaction.reply({
-        content: "❌ Failed to create the role. Please try again later.",
-        flags: 64
-      });
-      await logError(error);
-    }
-  }
 });
 
-client.on("ready", () => {
-  console.log(`${client.user.tag} is now online!`);
-  registerCommands();
+// Log the bot in and register commands
+client.once("ready", async () => {
+  console.log(`Logged in as ${client.user.tag}`);
+  await logAction("1354978824856670359", `Bot started successfully at ${new Date().toLocaleString()}`);
+  await registerCommands();
 });
 
-// Log in the bot using the token
+// Reboot logs
+client.on("shardReconnecting", () => {
+  logAction("1354978824856670359", "Bot is reconnecting...");
+});
+client.on("shardDisconnect", (event) => {
+  logAction("1354978824856670359", `Bot disconnected. Code: ${event.code}`);
+});
+
 client.login(process.env.BOT_TOKEN);
