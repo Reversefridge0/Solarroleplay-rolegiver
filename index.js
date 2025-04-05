@@ -3,7 +3,6 @@ const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require
 const fs = require("fs");
 const path = require("path");
 
-// Create bot client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -12,49 +11,52 @@ const client = new Client({
   ]
 });
 
-// Load permissions from the permissions.json file
 const permissionsFilePath = path.join(__dirname, 'permissions.json');
 let permissions = {};
 
-// Check if the permissions file exists and load it
 if (fs.existsSync(permissionsFilePath)) {
   permissions = JSON.parse(fs.readFileSync(permissionsFilePath, 'utf-8'));
 } else {
   console.log('permissions.json not found! Please create it in the root directory.');
 }
 
-// Define the slash commands
 const commands = [
   new SlashCommandBuilder()
     .setName('giverole')
     .setDescription('Assign a specific role to a user')
-    .addUserOption(option => 
+    .addUserOption(option =>
       option.setName('user')
         .setDescription('The user to give a role to')
         .setRequired(true)
     )
-    .addRoleOption(option => 
+    .addRoleOption(option =>
       option.setName('role')
         .setDescription('The role to assign')
         .setRequired(true)
     ),
-  
   new SlashCommandBuilder()
     .setName('removerole')
     .setDescription('Remove a specific role from a user')
-    .addUserOption(option => 
+    .addUserOption(option =>
       option.setName('user')
         .setDescription('The user to remove the role from')
         .setRequired(true)
     )
-    .addRoleOption(option => 
+    .addRoleOption(option =>
       option.setName('role')
         .setDescription('The role to remove')
+        .setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName('createrole')
+    .setDescription('Create a new role in the server')
+    .addStringOption(option =>
+      option.setName('name')
+        .setDescription('The name of the role to create')
         .setRequired(true)
     )
 ].map(command => command.toJSON());
 
-// Register slash commands with Discord API
 const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
 
 async function registerCommands() {
@@ -71,19 +73,20 @@ async function registerCommands() {
   }
 }
 
-// Check if a member can give or remove a role based on permissions.json
 function hasPermissionToManageRole(member, role) {
   const roleId = role.id;
+  const memberRoles = member.roles.cache;
 
   for (const [giverRoleId, allowedRoles] of Object.entries(permissions.roles)) {
-    if (member.roles.cache.has(giverRoleId) && allowedRoles.includes(roleId)) {
-      return true;
+    if (memberRoles.has(giverRoleId)) {
+      if (allowedRoles.includes("ALL_ROLES") || allowedRoles.includes(roleId)) {
+        return true;
+      }
     }
   }
   return false;
 }
 
-// Function to log actions to a specific channel
 async function logAction(channelId, message) {
   try {
     const channel = await client.channels.fetch(channelId);
@@ -97,14 +100,12 @@ async function logAction(channelId, message) {
   }
 }
 
-// Function to log errors
 async function logError(error) {
   const logChannelId = "1354978824856670359";
   const errorMessage = `❌ Error occurred: ${error.message}\nStack: ${error.stack}`;
   await logAction(logChannelId, errorMessage);
 }
 
-// Handle the interaction and role assignment or removal
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -183,16 +184,51 @@ client.on("interactionCreate", async interaction => {
       await logError(error);
     }
   }
+
+  if (interaction.commandName === "createrole") {
+    const roleName = interaction.options.getString("name");
+    const creator = interaction.member;
+    const creatorRoles = creator.roles.cache.map(r => r.id);
+
+    const canCreate = creatorRoles.some(roleId =>
+      permissions.roles[roleId]?.includes("ALL_ROLES")
+    );
+
+    if (!canCreate) {
+      return interaction.reply({
+        content: "❌ You do not have permission to create roles.",
+        flags: 64
+      });
+    }
+
+    try {
+      const newRole = await interaction.guild.roles.create({
+        name: roleName,
+        reason: `Role created by ${creator.user.tag}`
+      });
+
+      await interaction.reply({
+        content: `✅ Role \`${newRole.name}\` has been created successfully.`
+      });
+
+      await logAction(logChannelId, `🆕 Role **${newRole.name}** was created by <@${creator.id}>`);
+    } catch (error) {
+      console.error(error);
+      await interaction.reply({
+        content: "❌ Failed to create the role.",
+        flags: 64
+      });
+      await logError(error);
+    }
+  }
 });
 
-// Log the bot in and register commands
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
   await logAction("1354978824856670359", `Bot started successfully at ${new Date().toLocaleString()}`);
   await registerCommands();
 });
 
-// Reboot logs
 client.on("shardReconnecting", () => {
   logAction("1354978824856670359", "Bot is reconnecting...");
 });
