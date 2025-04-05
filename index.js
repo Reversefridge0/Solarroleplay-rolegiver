@@ -1,239 +1,113 @@
-require("dotenv").config();
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require("discord.js");
-const fs = require("fs");
-const path = require("path");
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.MessageContent
-  ]
-});
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+
+const TOKEN = 'YOUR_BOT_TOKEN';
+const CLIENT_ID = 'YOUR_CLIENT_ID';
+const GUILD_ID = 'YOUR_GUILD_ID';
+const LOG_CHANNEL_ID = 'LOG_CHANNEL_ID_HERE'; // << Replace with your log channel ID
 
 const permissionsFilePath = path.join(__dirname, 'permissions.json');
-let permissions = {};
+let rolePermissions = JSON.parse(fs.readFileSync(permissionsFilePath, 'utf-8')).roles;
 
-if (fs.existsSync(permissionsFilePath)) {
-  permissions = JSON.parse(fs.readFileSync(permissionsFilePath, 'utf-8'));
-} else {
-  console.log('permissions.json not found! Please create it in the root directory.');
-}
-
+// Define the /giverole and /createrole commands
 const commands = [
   new SlashCommandBuilder()
     .setName('giverole')
-    .setDescription('Assign a specific role to a user')
+    .setDescription('Give a user a role')
     .addUserOption(option =>
       option.setName('user')
-        .setDescription('The user to give a role to')
-        .setRequired(true)
-    )
+        .setDescription('The user to give the role to')
+        .setRequired(true))
     .addRoleOption(option =>
       option.setName('role')
-        .setDescription('The role to assign')
-        .setRequired(true)
-    ),
-  new SlashCommandBuilder()
-    .setName('removerole')
-    .setDescription('Remove a specific role from a user')
-    .addUserOption(option =>
-      option.setName('user')
-        .setDescription('The user to remove the role from')
-        .setRequired(true)
-    )
-    .addRoleOption(option =>
-      option.setName('role')
-        .setDescription('The role to remove')
-        .setRequired(true)
-    ),
+        .setDescription('The role to give')
+        .setRequired(true)),
   new SlashCommandBuilder()
     .setName('createrole')
-    .setDescription('Create a new role in the server')
+    .setDescription('Create a new role')
     .addStringOption(option =>
       option.setName('name')
-        .setDescription('The name of the role to create')
-        .setRequired(true)
-    )
-].map(command => command.toJSON());
+        .setDescription('Name of the role')
+        .setRequired(true))
+];
 
-const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
-
-async function registerCommands() {
+const rest = new REST({ version: '10' }).setToken(TOKEN);
+(async () => {
   try {
-    console.log("Registering slash commands...");
-    await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
-      { body: commands }
-    );
-    console.log("Slash commands registered!");
+    console.log('Started refreshing application (/) commands.');
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+    console.log('Successfully reloaded application (/) commands.');
   } catch (error) {
-    console.error("Error registering commands: ", error);
-    await logError(error);
+    console.error(error);
   }
+})();
+
+client.on('ready', () => {
+  console.log(`Logged in as ${client.user.tag}`);
+});
+
+// Check if a member has permission to give a role
+function hasPermission(giver, roleId) {
+  const giverRoleIds = giver.roles.cache.map(role => role.id);
+  return giverRoleIds.some(giverRoleId =>
+    rolePermissions[giverRoleId]?.includes(roleId) || rolePermissions[giverRoleId]?.includes("ALL_ROLES")
+  );
 }
 
-function hasPermissionToManageRole(member, role) {
-  const roleId = role.id;
-  const memberRoles = member.roles.cache;
+// Log denied access
+async function logDeniedAccess(giver, role, interaction) {
+  const logChannel = await interaction.guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+  if (!logChannel) return;
 
-  for (const [giverRoleId, allowedRoles] of Object.entries(permissions.roles)) {
-    if (memberRoles.has(giverRoleId)) {
-      if (allowedRoles.includes("ALL_ROLES") || allowedRoles.includes(roleId)) {
-        return true;
-      }
-    }
-  }
-  return false;
+  const userTag = `${giver.user.username}#${giver.user.discriminator}`;
+  const logMessage = `❌ **Permission Denied**\nUser: ${userTag} (${giver.id})\nTried to give/create role: <@&${role.id || 'N/A'}> (${role.name || role})`;
+
+  logChannel.send(logMessage).catch(() => {});
 }
 
-async function logAction(channelId, message) {
-  try {
-    const channel = await client.channels.fetch(channelId);
-    if (!channel || !channel.send) {
-      console.error("Log channel not found or invalid.");
-      return;
-    }
-    await channel.send(message);
-  } catch (error) {
-    console.error("Error logging action:", error);
-  }
-}
-
-async function logError(error) {
-  const logChannelId = "1354978824856670359";
-  const errorMessage = `❌ Error occurred: ${error.message}\nStack: ${error.stack}`;
-  await logAction(logChannelId, errorMessage);
-}
-
-client.on("interactionCreate", async interaction => {
+client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const logChannelId = "1354978824856670359";
+  const member = interaction.member;
 
-  if (interaction.commandName === "giverole") {
-    const user = interaction.options.getUser("user");
-    const role = interaction.options.getRole("role");
+  if (interaction.commandName === 'giverole') {
+    const user = interaction.options.getUser('user');
+    const role = interaction.options.getRole('role');
 
-    const member = await interaction.guild.members.fetch(user.id);
-    const giver = interaction.member;
-
-    if (!hasPermissionToManageRole(giver, role)) {
-      return interaction.reply({
-        content: "You do not have permission to assign this role in the Solar Role Play community.",
-        flags: 64
-      });
+    if (!hasPermission(member, role.id)) {
+      await interaction.reply({ content: '❌ You don’t have permission to give this role. This action has been logged.', ephemeral: true });
+      await logDeniedAccess(member, role, interaction);
+      return;
     }
 
-    try {
-      await member.roles.add(role);
-      await interaction.reply({
-        content: `✅ Successfully gave ${role.name} to <@${user.id}> by Solar roleplay!`
-      });
-
-      await giver.send(`✅ You have successfully given the ${role.name} role to <@${user.id}> by Solar roleplay.`);
-      await interaction.channel.send(`<@${user.id}>, you have received the ${role.name} role from Solar roleplay!`);
-
-      try {
-        await member.send(`Hey, you’ve received the ${role.name} role from <@${giver.id}>.`);
-      } catch (dmError) {
-        console.error("Failed to DM the recipient:", dmError);
-      }
-
-      await logAction(logChannelId, `Role ${role.name} was given to <@${user.id}> by <@${giver.id}>`);
-    } catch (error) {
-      console.error(error);
-      await interaction.reply({
-        content: "❌ Failed to assign the role. Ensure my role is above the target role in the server settings.",
-        flags: 64
-      });
-      await logError(error);
-    }
+    const targetMember = await interaction.guild.members.fetch(user.id);
+    await targetMember.roles.add(role);
+    await interaction.reply({ content: `✅ Role <@&${role.id}> has been given to ${user.tag}`, ephemeral: true });
   }
 
-  if (interaction.commandName === "removerole") {
-    const user = interaction.options.getUser("user");
-    const role = interaction.options.getRole("role");
+  if (interaction.commandName === 'createrole') {
+    const roleName = interaction.options.getString('name');
 
-    const member = await interaction.guild.members.fetch(user.id);
-    const remover = interaction.member;
+    const hasCreatePermission = Object.entries(rolePermissions).some(([roleId, allowed]) => {
+      return member.roles.cache.has(roleId) && (allowed.includes('ALL_ROLES'));
+    });
 
-    if (!hasPermissionToManageRole(remover, role)) {
-      return interaction.reply({
-        content: "You do not have permission to remove this role in the Solar Role Play community.",
-        flags: 64
-      });
+    if (!hasCreatePermission) {
+      await interaction.reply({ content: '❌ You don’t have permission to create roles. This action has been logged.', ephemeral: true });
+      await logDeniedAccess(member, { name: roleName }, interaction);
+      return;
     }
 
-    try {
-      await member.roles.remove(role);
-      await interaction.reply({
-        content: `✅ Successfully removed ${role.name} from <@${user.id}> by Solar roleplay!`
-      });
+    const newRole = await interaction.guild.roles.create({
+      name: roleName,
+      reason: `Created by ${member.user.tag} via /createrole`
+    });
 
-      await remover.send(`✅ You have successfully removed the ${role.name} role from <@${user.id}> by Solar roleplay.`);
-      await interaction.channel.send(`<@${user.id}>, the ${role.name} role has been removed from you by Solar roleplay.`);
-
-      await logAction(logChannelId, `Role ${role.name} was removed from <@${user.id}> by <@${remover.id}>`);
-    } catch (error) {
-      console.error(error);
-      await interaction.reply({
-        content: "❌ Failed to remove the role. Ensure my role is above the target role in the server settings.",
-        flags: 64
-      });
-      await logError(error);
-    }
-  }
-
-  if (interaction.commandName === "createrole") {
-    const roleName = interaction.options.getString("name");
-    const creator = interaction.member;
-    const creatorRoles = creator.roles.cache.map(r => r.id);
-
-    const canCreate = creatorRoles.some(roleId =>
-      permissions.roles[roleId]?.includes("ALL_ROLES")
-    );
-
-    if (!canCreate) {
-      return interaction.reply({
-        content: "❌ You do not have permission to create roles.",
-        flags: 64
-      });
-    }
-
-    try {
-      const newRole = await interaction.guild.roles.create({
-        name: roleName,
-        reason: `Role created by ${creator.user.tag}`
-      });
-
-      await interaction.reply({
-        content: `✅ Role \`${newRole.name}\` has been created successfully.`
-      });
-
-      await logAction(logChannelId, `🆕 Role **${newRole.name}** was created by <@${creator.id}>`);
-    } catch (error) {
-      console.error(error);
-      await interaction.reply({
-        content: "❌ Failed to create the role.",
-        flags: 64
-      });
-      await logError(error);
-    }
+    await interaction.reply({ content: `✅ Role **${newRole.name}** created successfully.`, ephemeral: true });
   }
 });
 
-client.once("ready", async () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  await logAction("1354978824856670359", `Bot started successfully at ${new Date().toLocaleString()}`);
-  await registerCommands();
-});
-
-client.on("shardReconnecting", () => {
-  logAction("1354978824856670359", "Bot is reconnecting...");
-});
-client.on("shardDisconnect", (event) => {
-  logAction("1354978824856670359", `Bot disconnected. Code: ${event.code}`);
-});
-
-client.login(process.env.BOT_TOKEN);
+client.login(TOKEN);
